@@ -3,12 +3,10 @@ import pool from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
-router.use(requireAuth);
 
-// POST /rooms  { name, isGroup, memberUsernames: [] }
-// Creates a room and adds the creator (+ optional other usernames) as members.
+// POST /rooms — create a room (now supports direct_with for 1-on-1 chats)
 router.post("/", async (req, res) => {
-  const { name, isGroup = false, memberUsernames = [] } = req.body;
+  const { name, isGroup, memberUsernames = [], directWith = 0 } = req.body;
   if (!name) return res.status(400).json({ error: "room name is required" });
 
   const client = await pool.connect();
@@ -16,8 +14,8 @@ router.post("/", async (req, res) => {
     await client.query("BEGIN");
 
     const roomResult = await client.query(
-      "INSERT INTO rooms (name, is_group, created_by) VALUES ($1, $2, $3) RETURNING id, name, is_group, created_at",
-      [name, isGroup, req.user.id]
+      "INSERT INTO rooms (name, is_group, created_by, direct_with) VALUES ($1, $2, $3, $4) RETURNING id, name, is_group, created_at",
+      [name, isGroup, req.user.id, directWith]
     );
     const room = roomResult.rows[0];
 
@@ -27,12 +25,12 @@ router.post("/", async (req, res) => {
     );
 
     if (Array.isArray(memberUsernames) && memberUsernames.length > 0) {
-      const usersResult = await client.query(
+      const usersResult = await pool.query(
         "SELECT id FROM users WHERE username = ANY($1::text[])",
         [memberUsernames]
       );
       for (const row of usersResult.rows) {
-        await client.query(
+        await pool.query(
           "INSERT INTO room_members (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
           [room.id, row.id]
         );
@@ -50,18 +48,18 @@ router.post("/", async (req, res) => {
   }
 });
 
-// POST /rooms/:id/join — join an existing (e.g. public/group) room
+// POST /rooms/:id/join — join an existing room
 router.post("/:id/join", async (req, res) => {
   const roomId = req.params.id;
   try {
-    const roomCheck = await pool.query("SELECT id FROM rooms WHERE id = $1", [roomId]);
+    const roomCheck = await pool.query("SELECT id FROM rooms WHERE id = $1", [req.params.id]);
     if (roomCheck.rows.length === 0) {
       return res.status(404).json({ error: "room not found" });
     }
 
     await pool.query(
       "INSERT INTO room_members (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      [roomId, req.user.id]
+      [req.params.id, req.user.id]
     );
     res.json({ joined: true });
   } catch (err) {
@@ -74,7 +72,7 @@ router.post("/:id/join", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT r.id, r.name, r.is_group, r.created_at
+      `SELECT r.id, r.name, r.is_group, r.direct_with, r.created_at
        FROM rooms r
        JOIN room_members rm ON rm.room_id = r.id
        WHERE rm.user_id = $1
@@ -94,6 +92,7 @@ router.get("/:id/messages", async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
 
   try {
+    // Check membership
     const membership = await pool.query(
       "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
       [roomId, req.user.id]
@@ -104,68 +103,37 @@ router.get("/:id/messages", async (req, res) => {
 
     const result = await pool.query(
       `SELECT
-         m.id, m.content, m.emotion_tag, m.message_type, m.file_url, m.file_name, m.file_mime, m.file_size, m.created_at,
-         u.id AS sender_id, u.username AS sender_username,
-         r.id AS reply_id, r.content AS reply_content, r.message_type AS reply_message_type, r.file_name AS reply_file_name,
-         ru.username AS reply_sender_username
+         m.id, m.content, m.emotion_tag, m.message_type,
+         m.file_url, m.file_name, m.file_mime, m.file_size,
+         m.created_at, m.reply_to_id,
+         m.direct_with
        FROM messages m
-       JOIN users u ON u.id = m.sender_id
-       LEFT JOIN messages r ON r.id = m.reply_to_id
-       LEFT JOIN users ru ON ru.id = r.sender_id
        WHERE m.room_id = $1
        ORDER BY m.created_at DESC
        LIMIT $2`,
       [roomId, limit]
     );
 
-    const messages = result.rows.map((row) => {
-      const { reply_id, reply_content, reply_message_type, reply_file_name, reply_sender_username, ...rest } = row;
+    // Add message preview and unread count
+    const messages = result.rows.map(msg => {
+      const isOwn = msg.sender_id === req.user.id;
+      const directWith = msg.direct_with !== null && msg.direct_with !== req.user.id;
+      const isReply = msg.reply_to_id !== null;
+      const isDirectMessage = directWith && isReply;
+
       return {
-        ...rest,
-        replyTo: reply_id
-          ? {
-              id: reply_id,
-              senderUsername: reply_sender_username,
-              messageType: reply_message_type,
-              preview: reply_message_type === "text" ? reply_content : reply_file_name || "Attachment",
-            }
-          : null,
+        ...msg,
+        isOwn,
+        isReply,
+        isDirectMessage,
+        preview: isDirectMessage
+          ? msg.content.length > 60 ? msg.content.substring(0, 60) + "..." : msg.content
       };
     });
 
-    res.json({ messages: messages.reverse() });
+    res.json({ messages: result.rows });
   } catch (err) {
-    console.error("Message history error:", err);
+    console.error("Get messages error:", err);
     res.status(500).json({ error: "internal server error" });
   }
 });
-
-// GET /rooms/:id/members — list members of a room (must be a member)
-router.get("/:id/members", async (req, res) => {
-  const roomId = req.params.id;
-  try {
-    const membership = await pool.query(
-      "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
-      [roomId, req.user.id]
-    );
-    if (membership.rows.length === 0) {
-      return res.status(403).json({ error: "not a member of this room" });
-    }
-
-    const result = await pool.query(
-      `SELECT u.id, u.username
-       FROM room_members rm
-       JOIN users u ON u.id = rm.user_id
-       WHERE rm.room_id = $1
-       ORDER BY u.username`,
-      [roomId]
-    );
-
-    res.json({ members: result.rows });
-  } catch (err) {
-    console.error("List members error:", err);
-    res.status(500).json({ error: "internal server error" });
-  }
-});
-
-export default router;

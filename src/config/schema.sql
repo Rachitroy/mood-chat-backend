@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS rooms (
     id            SERIAL PRIMARY KEY,
     name          VARCHAR(64) NOT NULL,
     is_group      BOOLEAN NOT NULL DEFAULT FALSE,
+    direct_with   INTEGER,  -- for 1-on-1 rooms, references the other user's id
     created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -29,21 +30,45 @@ CREATE TABLE IF NOT EXISTS messages (
     sender_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     content       TEXT NOT NULL,
     emotion_tag   VARCHAR(16) NOT NULL DEFAULT 'neutral',
+    message_type  VARCHAR(10) NOT NULL DEFAULT 'text',
+    file_url      TEXT,
+    file_name     TEXT,
+    file_mime     TEXT,
+    file_size     INTEGER,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- File/photo sharing support. Uses ADD COLUMN IF NOT EXISTS so this is safe
--- to re-run against a database that already has the base messages table.
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_type VARCHAR(10) NOT NULL DEFAULT 'text';
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_url TEXT;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_name TEXT;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_mime TEXT;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_size INTEGER;
-
 -- Reply-to-a-specific-message support. ON DELETE SET NULL so replying to a
--- message that later gets removed doesn't break the reply chain.
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
+-- message that later gets removed just clears the reference.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER
+    REFERENCES messages(id) ON DELETE SET NULL;
 
-CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id);
-CREATE INDEX IF NOT EXISTS idx_room_members_user_id ON room_members(user_id);
-CREATE INDEX IF NOT EXISTS idx_messages_reply_to_id ON messages(reply_to_id);
+-- Chat request support
+-- Pending requests from one user to another
+CREATE TABLE IF NOT EXISTS chat_requests (
+    id            SERIAL PRIMARY KEY,
+    from_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message       TEXT,
+    status        VARCHAR(16) NOT NULL DEFAULT 'pending',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(from_user_id, to_user_id, status)
+);
+
+-- Users who have blocked each other
+CREATE TABLE IF NOT EXISTS blocked_users (
+    blocker_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    blocked_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (blocker_id, blocked_id)
+);
+
+-- Indices for performance
+CREATE INDEX IF NOT EXISTS idx_chat_requests_to_user ON chat_requests(to_user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_requests_status ON chat_requests(status);
+CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked ON blocked_users(blocked_id);
+CREATE INDEX IF NOT EXISTS idx_blocked_users_blocker ON blocked_users(blocker_id);
+CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+-- Full-text search index for user search
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
