@@ -8,14 +8,14 @@ router.use(requireAuth);
 // GET /requests — get all pending chat requests where this user is the recipient
 router.get("/", async (req, res) => {
   try {
+    console.log("[GET_REQUESTS] user:", req.user.id);
     const result = await pool.query(
       `SELECT
          cr.id,
          cr.message,
          cr.created_at,
          cr.status,
-         u.username as "fromUsername",
-         u.avatar_url as "fromAvatar"
+         u.username as "fromUsername"
        FROM chat_requests cr
        JOIN users u ON u.id = cr.from_user_id
        WHERE cr.to_user_id = $1
@@ -23,10 +23,11 @@ router.get("/", async (req, res) => {
        ORDER BY cr.created_at DESC`,
       [req.user.id]
     );
+    console.log("[GET_REQUESTS] found:", result.rows.length);
     res.json({ requests: result.rows });
   } catch (err) {
-    console.error("Get requests error:", err);
-    res.status(500).json({ error: "internal server error" });
+    console.error("[GET_REQUESTS] Error:", err.message, err.stack);
+    res.status(500).json({ error: "internal server error", details: err.message });
   }
 });
 
