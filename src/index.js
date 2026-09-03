@@ -75,11 +75,12 @@ app.use("/upload", uploadRoutes);
 app.use("/requests", requestRoutes);
 app.use("/users", userRoutes);
 
+// Initialize database schema before starting server
+await initDatabase();
+
 const httpServer = createServer(app);
 initSocket(httpServer, corsOrigins);
 
-// Start server and initialize DB
-httpServer.listen(PORT, async () => {
+httpServer.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
-  await initDatabase();
 });
