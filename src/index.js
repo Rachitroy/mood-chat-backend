@@ -47,6 +47,22 @@ async function initDatabase() {
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
+    // First, add any missing columns to existing tables
+    const alterStatements = [
+      // Add direct_with to rooms if it doesn't exist
+      "DO $$ BEGIN ALTER TABLE rooms ADD COLUMN IF NOT EXISTS direct_with INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $$",
+      // Add reply_to_id to messages if it doesn't exist
+      "DO $$ BEGIN ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$",
+    ];
+
+    for (const stmt of alterStatements) {
+      try {
+        await pool.query(stmt);
+      } catch (e) {
+        console.warn("Alter table warning:", e.message);
+      }
+    }
+
     // Parse and execute schema
     const statements = schema.split(";").filter(s => s.trim().length > 0);
     for (const stmt of statements) {
@@ -55,7 +71,7 @@ async function initDatabase() {
           await pool.query(stmt.trim());
         } catch (e) {
           // Ignore "already exists" errors
-          if (!e.message.includes("already exists") && !e.message.includes("duplicate key")) {
+          if (!e.message.includes("already exists") && !e.message.includes("duplicate key") && !e.message.includes("already been asked")) {
             console.warn("Schema statement warning:", e.message);
           }
         }
