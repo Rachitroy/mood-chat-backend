@@ -72,7 +72,6 @@ router.post("/:id/join", async (req, res) => {
 // GET /rooms — list rooms the current user belongs to
 router.get("/", async (req, res) => {
   try {
-    console.log("[ROOMS] Fetching rooms for user:", req.user.id);
     const result = await pool.query(
       `SELECT r.id, r.name, r.is_group, r.direct_with, r.created_at
        FROM rooms r
@@ -81,12 +80,10 @@ router.get("/", async (req, res) => {
        ORDER BY r.created_at DESC`,
       [req.user.id]
     );
-    console.log("[ROOMS] Found rooms:", result.rows.length);
     res.json({ rooms: result.rows });
   } catch (err) {
-    console.error("[ROOMS] List rooms error:", err.message);
-    console.error("[ROOMS] Stack trace:", err.stack);
-    res.status(500).json({ error: "internal server error", details: err.message });
+    console.error("List rooms error:", err);
+    res.status(500).json({ error: "internal server error" });
   }
 });
 
