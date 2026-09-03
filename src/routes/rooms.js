@@ -10,16 +10,21 @@ router.post("/", async (req, res) => {
   const { name, isGroup, memberUsernames = [], directWith = null } = req.body;
   if (!name) return res.status(400).json({ error: "room name is required" });
 
+  console.log("[CREATE_ROOM] user:", req.user.id, "name:", name, "isGroup:", isGroup, "directWith:", directWith);
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
+    console.log("[CREATE_ROOM] Inserting room...");
     const roomResult = await client.query(
       "INSERT INTO rooms (name, is_group, created_by, direct_with) VALUES ($1, $2, $3, $4) RETURNING id, name, is_group, created_at",
       [name, isGroup, req.user.id, directWith]
     );
+    console.log("[CREATE_ROOM] Room created:", roomResult.rows[0]);
     const room = roomResult.rows[0];
 
+    console.log("[CREATE_ROOM] Adding member:", req.user.id);
     await client.query(
       "INSERT INTO room_members (room_id, user_id) VALUES ($1, $2)",
       [room.id, req.user.id]
@@ -41,9 +46,8 @@ router.post("/", async (req, res) => {
     await client.query("COMMIT");
     res.status(201).json({ room });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("Create room error:", err);
-    res.status(500).json({ error: "internal server error" });
+    console.error("[CREATE_ROOM] Error:", err.message, err.stack);
+    res.status(500).json({ error: "internal server error", details: err.message });
   } finally {
     client.release();
   }
