@@ -140,3 +140,4 @@ router.get("/:id/messages", async (req, res) => {
     res.status(500).json({ error: "internal server error" });
   }
 });
+export default router;
