@@ -3,6 +3,7 @@ import pool from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
+router.use(requireAuth);  // Protect all room routes — requires valid JWT
 
 // POST /rooms — create a room (now supports direct_with for 1-on-1 chats)
 router.post("/", async (req, res) => {

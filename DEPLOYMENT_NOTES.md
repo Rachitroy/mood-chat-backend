@@ -1,26 +1,40 @@
-# Backend Deployment Checklist
+# Backend Deployment Status - 2026-09-03
 
-## Completed Tasks:
-1. ✅ Fixed backend route registration in src/index.js
-2. ✅ Fixed messages query in src/routes/rooms.js (added sender_id and direct_with columns)
-3. ✅ Verified backend structure is correct with all new routes
+## Current Issues:
+- `/rooms` endpoint returns 500 Internal Server Error
+- `/auth/register` works fine (user creation works)
+- Backend health check returns OK
 
-## Pending Tasks:
-1. ❌ Deploy backend to Railway
-2. ❌ Apply database schema (schema.sql) on Railway PostgreSQL
-3. ❌ Verify new API endpoints work
+## Root Cause Analysis:
+The auth endpoints work (register, login) but `/rooms` fails. Both use the same database pool. This suggests:
+1. The rooms table or room_members table might be missing
+2. There's an error in the rooms.js route code
+3. The query has a syntax/column mismatch
 
-## Next Steps:
-1. Install Railway CLI
-2. Deploy backend to Railway
-3. Apply schema.sql to Railway database
-4. Test all new endpoints
+## Changes Made:
+1. `src/index.js` - Added auto-initialization of database schema on startup
+2. `src/config/db.js` - Fixed dotenv import to be ESM-compatible
+3. All fixes committed and pushed to Railway
 
-## Important Notes:
-- The backend is ready to deploy
-- Railway auto-deploys from main branch if connected
-- Need to run schema.sql on Railway PostgreSQL instance
-- After deployment, test:
-  - GET /requests (requires auth)
-  - GET /users/search?q= (requires auth)
-  - POST /requests (requires auth)
+## Schema Tables Required:
+- users (works - auth creates users)
+- rooms
+- room_members
+- messages
+- chat_requests
+- blocked_users
+
+## Next Debug Steps:
+1. Add more detailed logging to /rooms endpoint
+2. Check Railway logs for specific error
+3. Try accessing the database directly to verify tables exist
+4. Check if there's a missing column or FK constraint issue
+
+## Known Working:
+- Health endpoint: /health
+- Auth endpoints: /auth/register, /auth/login
+
+## Known Broken:
+- /rooms (500 error)
+- /requests
+- /users/*
