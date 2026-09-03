@@ -7,7 +7,7 @@ router.use(requireAuth);  // Protect all room routes — requires valid JWT
 
 // POST /rooms — create a room (now supports direct_with for 1-on-1 chats)
 router.post("/", async (req, res) => {
-  const { name, isGroup, memberUsernames = [], directWith = 0 } = req.body;
+  const { name, isGroup, memberUsernames = [], directWith = null } = req.body;
   if (!name) return res.status(400).json({ error: "room name is required" });
 
   const client = await pool.connect();
