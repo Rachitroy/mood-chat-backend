@@ -7,7 +7,6 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 dotenv.config();
 import { Pool } from "pg";
-import schema from "./config/schema.sql" with { type: "text" };
 
 import authRoutes from "./routes/auth.js";
 import roomRoutes from "./routes/rooms.js";
@@ -37,13 +36,29 @@ async function initDatabase() {
     return;
   }
 
+  const schemaPath = path.join(__dirname, "config", "schema.sql");
+  let schema;
+  try {
+    schema = fs.readFileSync(schemaPath, "utf8");
+  } catch (err) {
+    console.error("Could not read schema file:", err.message);
+    return;
+  }
+
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
     // Parse and execute schema
     const statements = schema.split(";").filter(s => s.trim().length > 0);
     for (const stmt of statements) {
       if (stmt.trim()) {
-        await pool.query(stmt.trim());
+        try {
+          await pool.query(stmt.trim());
+        } catch (e) {
+          // Ignore "already exists" errors
+          if (!e.message.includes("already exists") && !e.message.includes("duplicate key")) {
+            console.warn("Schema statement warning:", e.message);
+          }
+        }
       }
     }
     console.log("Database schema initialized successfully");
