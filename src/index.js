@@ -9,6 +9,8 @@ import "dotenv/config";
 import authRoutes from "./routes/auth.js";
 import roomRoutes from "./routes/rooms.js";
 import uploadRoutes from "./routes/upload.js";
+import requestRoutes from "./routes/requests.js";
+import userRoutes from "./routes/users.js";
 import { initSocket } from "./sockets/chat.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +30,8 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.use("/auth", authRoutes);
 app.use("/rooms", roomRoutes);
 app.use("/upload", uploadRoutes);
+app.use("/requests", requestRoutes);
+app.use("/users", userRoutes);
 
 const httpServer = createServer(app);
 initSocket(httpServer, corsOrigins);

@@ -106,8 +106,10 @@ router.get("/:id/messages", async (req, res) => {
          m.id, m.content, m.emotion_tag, m.message_type,
          m.file_url, m.file_name, m.file_mime, m.file_size,
          m.created_at, m.reply_to_id,
-         m.direct_with
+         m.sender_id,
+         r.direct_with
        FROM messages m
+       JOIN rooms r ON m.room_id = r.id
        WHERE m.room_id = $1
        ORDER BY m.created_at DESC
        LIMIT $2`,
@@ -128,10 +130,11 @@ router.get("/:id/messages", async (req, res) => {
         isDirectMessage,
         preview: isDirectMessage
           ? msg.content.length > 60 ? msg.content.substring(0, 60) + "..." : msg.content
+          : ""
       };
     });
 
-    res.json({ messages: result.rows });
+    res.json({ messages });
   } catch (err) {
     console.error("Get messages error:", err);
     res.status(500).json({ error: "internal server error" });
